@@ -18,7 +18,7 @@ use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use crate::syscall::process::TaskInfo;
-use crate::timer::get_time;
+use crate::timer::get_time_ms;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
@@ -47,6 +47,8 @@ pub struct TaskManagerInner {
     tasks: [TaskControlBlock; MAX_APP_NUM],
     /// task info
     pub tasks_info: [TaskInfo; MAX_APP_NUM],
+    /// first schedule times
+    pub tasks_schedule_times: [usize; MAX_APP_NUM],
     /// id of current `Running` task
     pub current_task: usize,
 }
@@ -64,6 +66,7 @@ lazy_static! {
             syscall_times: [0; MAX_SYSCALL_NUM],
             time: 0,
         }; MAX_APP_NUM];
+        let tasks_schedule_times = [0; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
             task.task_status = TaskStatus::Ready;
@@ -77,6 +80,7 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     tasks_info,
+                    tasks_schedule_times,
                     current_task: 0,
                 })
             },
@@ -95,9 +99,8 @@ impl TaskManager {
         task0.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
     
-        let task0_info = &mut inner.tasks_info[0];
-        task0_info.status = TaskStatus::Running;
-        task0_info.time = get_time();
+        inner.tasks_info[0].status = TaskStatus::Running;
+        inner.tasks_schedule_times[0] = get_time_ms();
 
         drop(inner);
 
@@ -114,6 +117,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
         inner.tasks[current].task_status = TaskStatus::Ready;
+        inner.tasks_info[current].status = TaskStatus::Ready;
     }
 
     /// Change the status of current `Running` task into `Exited`.
@@ -121,6 +125,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
         inner.tasks[current].task_status = TaskStatus::Exited;
+        inner.tasks_info[current].status = TaskStatus::Exited;
     }
 
     /// Find next task to run and return task id.
@@ -141,11 +146,12 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
+            inner.tasks_info[next].status = TaskStatus::Running;
             inner.current_task = next;
 
             // first time schedule
-            if inner.tasks_info[next].time == 0 {
-                inner.tasks_info[next].time = get_time();
+            if inner.tasks_schedule_times[next] == 0 {
+                inner.tasks_schedule_times[next] = get_time_ms();
             }
 
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
@@ -168,14 +174,11 @@ impl TaskManager {
         inner.tasks_info[current].syscall_times[syscall_id] += 1;
     }
 
-    /// set time in taskinfo if first time syscall
-    fn set_time_if_first_syscall(&self) {
+    /// set time when syscall
+    fn set_time_when_syscall(&self) {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        let total_syscall_times: u32 = inner.tasks_info[current].syscall_times.iter().sum();
-        if total_syscall_times == 0 {
-            inner.tasks_info[current].time = get_time() - inner.tasks_info[current].time;
-        }
+        inner.tasks_info[current].time = get_time_ms() - inner.tasks_schedule_times[current];
     }
 
     /// get current taskinfo
@@ -229,8 +232,8 @@ pub fn inc_current_task_syscall(syscall_id: usize) {
 }
 
 /// set time in taskinfo if first time syscall
-pub fn set_time_if_first_syscall() {
-    TASK_MANAGER.set_time_if_first_syscall();
+pub fn set_time_when_syscall() {
+    TASK_MANAGER.set_time_when_syscall();
 }
 
 /// get current task info

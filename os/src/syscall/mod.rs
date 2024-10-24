@@ -27,11 +27,11 @@ pub(crate) mod process;
 use fs::*;
 use process::*;
 
-use crate::task::{inc_current_task_syscall, set_time_if_first_syscall};
+use crate::task::{inc_current_task_syscall, set_time_when_syscall};
 
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
-    set_time_if_first_syscall();
+    set_time_when_syscall();
     inc_current_task_syscall(syscall_id);
     match syscall_id {
         SYSCALL_WRITE => sys_write(args[0], args[1] as *const u8, args[2]),
