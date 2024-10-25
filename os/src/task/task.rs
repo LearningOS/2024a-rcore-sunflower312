@@ -2,7 +2,7 @@
 use super::TaskContext;
 use crate::config::TRAP_CONTEXT_BASE;
 use crate::mm::{
-    kernel_stack_position, MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE,
+    kernel_stack_position, MapPermission, MemorySet, PageTable, PhysPageNum, VirtAddr, KERNEL_SPACE
 };
 use crate::trap::{trap_handler, TrapContext};
 
@@ -38,6 +38,10 @@ impl TaskControlBlock {
     /// get the user token
     pub fn get_user_token(&self) -> usize {
         self.memory_set.token()
+    }
+    /// get the page table
+    pub fn get_page_table(&mut self) -> &mut PageTable {
+        self.memory_set.pagetable()
     }
     /// Based on the elf info in program, build the contents of task in a new address space
     pub fn new(elf_data: &[u8], app_id: usize) -> Self {
