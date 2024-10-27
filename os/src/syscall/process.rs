@@ -190,7 +190,7 @@ pub fn sys_munmap(start: usize, len: usize) -> isize {
     
     let memory_set = unsafe { &mut *current_memory_set() };
 
-    for area in memory_set.areas.iter() {
+    for area in memory_set.areas.iter_mut() {
         let area_range = area.vpn_range();
         if area_range.get_start() == start_va.floor() && 
            area_range.get_end() == end_va.ceil() {
