@@ -16,7 +16,7 @@ mod task;
 
 use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
-use crate::mm::PageTable;
+use crate::mm::MemorySet;
 use crate::sync::UPSafeCell;
 use crate::timer::get_time_ms;
 use crate::trap::TrapContext;
@@ -148,11 +148,11 @@ impl TaskManager {
         inner.tasks[inner.current_task].get_trap_cx()
     }
 
-    /// Get the current 'Running' task's page table.
-    fn get_current_pagetable(&self) -> *mut PageTable {
+    /// Get the current 'Running' task's memory set.
+    fn get_current_memory_set(&self) -> *mut MemorySet {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        inner.tasks[current].get_page_table() as *mut _
+        inner.tasks[current].get_memory_set() as *mut _
     }
 
     /// Get the current 'Running' task's task info.
@@ -253,9 +253,9 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
     TASK_MANAGER.get_current_trap_cx()
 }
 
-/// Get the current 'Running' task's trap contexts.
-pub fn current_pagetable() -> *mut PageTable {
-    TASK_MANAGER.get_current_pagetable()
+/// Get the current 'Running' task's memoryset.
+pub fn current_memory_set() -> *mut MemorySet {
+    TASK_MANAGER.get_current_memory_set()
 }
 
 /// Change the current 'Running' task's program break

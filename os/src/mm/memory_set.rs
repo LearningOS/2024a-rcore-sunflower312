@@ -35,8 +35,11 @@ lazy_static! {
 }
 /// address space
 pub struct MemorySet {
-    page_table: PageTable,
-    areas: Vec<MapArea>,
+    /// The page table that stores the virtual-to-physical address mappings for this address space
+    pub page_table: PageTable,
+    /// A collection of memory areas that belong to this address space, each representing 
+    /// a continuous virtual memory region with specific permissions and properties
+    pub areas: Vec<MapArea>,
 }
 
 impl MemorySet {
@@ -50,10 +53,6 @@ impl MemorySet {
     /// Get the page table token
     pub fn token(&self) -> usize {
         self.page_table.token()
-    }
-    /// Get the page table
-    pub fn pagetable(&mut self) -> &mut PageTable {
-        &mut self.page_table
     }
     /// Assume that no conflicts.
     pub fn insert_framed_area(
@@ -290,6 +289,10 @@ impl MapArea {
             map_type,
             map_perm,
         }
+    }
+    /// Get the VPNRange of this MapArea
+    pub fn vpn_range(&self) -> VPNRange {
+        self.vpn_range
     }
     pub fn map_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
         let ppn: PhysPageNum;
