@@ -10,6 +10,7 @@ use alloc::sync::{Arc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
+use crate::config::MAX_SYSCALL_NUM;
 
 /// Task control block structure
 ///
@@ -55,6 +56,15 @@ pub struct TaskControlBlockInner {
     /// Application address space
     pub memory_set: MemorySet,
 
+    /// First schedule time
+    pub first_schedule_time: usize,
+
+    /// Taskinfo time
+    pub time: usize,
+
+    /// Syscall times
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
+
     /// Parent process of the current process.
     /// Weak will not affect the reference count of the parent
     pub parent: Option<Weak<TaskControlBlock>>,
@@ -79,6 +89,10 @@ impl TaskControlBlockInner {
     }
     pub fn get_user_token(&self) -> usize {
         self.memory_set.token()
+    }
+    /// get the memory set
+    pub fn get_memory_set(&mut self) -> &mut MemorySet {
+        &mut self.memory_set
     }
     fn get_status(&self) -> TaskStatus {
         self.task_status
@@ -111,6 +125,12 @@ impl TaskControlBlock {
         let pid_handle = pid_alloc();
         let kernel_stack = kstack_alloc();
         let kernel_stack_top = kernel_stack.get_top();
+
+        // set initial first scheduled time and syscall times.
+        let first_schedule_time = 0usize;
+        let time = 0usize;
+        let syscall_times: [u32; MAX_SYSCALL_NUM] = [0; MAX_SYSCALL_NUM];
+
         // push a task context which goes to trap_return to the top of kernel stack
         let task_control_block = Self {
             pid: pid_handle,
@@ -122,6 +142,9 @@ impl TaskControlBlock {
                     task_cx: TaskContext::goto_trap_return(kernel_stack_top),
                     task_status: TaskStatus::Ready,
                     memory_set,
+                    first_schedule_time,
+                    time,
+                    syscall_times,
                     parent: None,
                     children: Vec::new(),
                     exit_code: 0,
@@ -191,6 +214,10 @@ impl TaskControlBlock {
         let pid_handle = pid_alloc();
         let kernel_stack = kstack_alloc();
         let kernel_stack_top = kernel_stack.get_top();
+        // set initial first scheduled time and syscall times.
+        let first_schedule_time = 0usize;
+        let time = 0usize;
+        let syscall_times: [u32; MAX_SYSCALL_NUM] = [0; MAX_SYSCALL_NUM];
         // copy fd table
         let mut new_fd_table: Vec<Option<Arc<dyn File + Send + Sync>>> = Vec::new();
         for fd in parent_inner.fd_table.iter() {
@@ -210,6 +237,9 @@ impl TaskControlBlock {
                     task_cx: TaskContext::goto_trap_return(kernel_stack_top),
                     task_status: TaskStatus::Ready,
                     memory_set,
+                    first_schedule_time,
+                    time,
+                    syscall_times,
                     parent: Some(Arc::downgrade(self)),
                     children: Vec::new(),
                     exit_code: 0,
@@ -234,6 +264,76 @@ impl TaskControlBlock {
     /// get pid of process
     pub fn getpid(&self) -> usize {
         self.pid.0
+    }
+
+    /// spawn
+    pub fn spawn(self: &Arc<Self>, elf_data: &[u8]) -> Arc<Self> {
+        // ---- access parent PCB exclusively
+        let mut parent_inner = self.inner_exclusive_access();
+        // copy user space(include trap context)
+        let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
+        let trap_cx_ppn = memory_set
+            .translate(VirtAddr::from(TRAP_CONTEXT_BASE).into())
+            .unwrap()
+            .ppn();
+        // alloc a pid and a kernel stack in kernel space
+        let pid_handle = pid_alloc();
+        let kernel_stack = kstack_alloc();
+        let kernel_stack_top = kernel_stack.get_top();
+
+        // set initial first scheduled time and syscall times.
+        let first_schedule_time = 0usize;
+        let time = 0usize;
+        let syscall_times: [u32; MAX_SYSCALL_NUM] = [0; MAX_SYSCALL_NUM];
+
+        let task_control_block = Arc::new(TaskControlBlock {
+            pid: pid_handle,
+            kernel_stack,
+            inner: unsafe {
+                UPSafeCell::new(TaskControlBlockInner {
+                    trap_cx_ppn,
+                    base_size: user_sp,
+                    task_cx: TaskContext::goto_trap_return(kernel_stack_top),
+                    task_status: TaskStatus::Ready,
+                    memory_set,
+                    first_schedule_time,
+                    time,
+                    syscall_times,
+                    parent: Some(Arc::downgrade(self)),
+                    children: Vec::new(),
+                    exit_code: 0,
+                    fd_table: vec![
+                        // 0 -> stdin
+                        Some(Arc::new(Stdin)),
+                        // 1 -> stdout
+                        Some(Arc::new(Stdout)),
+                        // 2 -> stderr
+                        Some(Arc::new(Stdout)),
+                    ],
+                    heap_bottom: user_sp,
+                    program_brk: user_sp,
+                })
+            },
+        });
+        // add child
+        parent_inner.children.push(task_control_block.clone());
+        // modify kernel_sp in trap_cx
+        // **** access child PCB exclusively
+        {
+            let child_inner = task_control_block.inner_exclusive_access();
+            let trap_cx = child_inner.get_trap_cx();
+            *trap_cx = TrapContext::app_init_context(
+                entry_point, 
+                user_sp, 
+                KERNEL_SPACE.exclusive_access().token(), 
+                kernel_stack_top, 
+                trap_handler as usize
+            );
+        }
+        // return
+        task_control_block
+        // **** release child PCB
+        // ---- release parent PCB
     }
 
     /// change the location of the program break. return None if failed.

@@ -38,8 +38,11 @@ pub fn kernel_token() -> usize {
 
 /// address space
 pub struct MemorySet {
-    page_table: PageTable,
-    areas: Vec<MapArea>,
+    /// The page table that stores the virtual-to-physical address mappings for this address space
+    pub page_table: PageTable,
+    /// A collection of memory areas that belong to this address space, each representing 
+    /// a continuous virtual memory region with specific permissions and properties
+    pub areas: Vec<MapArea>,
 }
 
 impl MemorySet {
@@ -350,6 +353,10 @@ impl MapArea {
             map_type: another.map_type,
             map_perm: another.map_perm,
         }
+    }
+    /// Get the VPNRange of this MapArea
+    pub fn vpn_range(&self) -> VPNRange {
+        self.vpn_range
     }
     pub fn map_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
         let ppn: PhysPageNum;

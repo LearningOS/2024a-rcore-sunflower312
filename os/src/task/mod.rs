@@ -22,7 +22,7 @@ mod switch;
 #[allow(rustdoc::private_intra_doc_links)]
 mod task;
 
-use crate::fs::{open_file, OpenFlags};
+use crate::{fs::{open_file, OpenFlags}, mm::MemorySet, timer::get_time_ms};
 use alloc::sync::Arc;
 pub use context::TaskContext;
 use lazy_static::*;
@@ -36,6 +36,8 @@ pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
     Processor,
 };
+use crate::syscall::process::TaskInfo;
+
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
     // There must be an application running.
@@ -102,6 +104,32 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     // we do not have to save task context
     let mut _unused = TaskContext::zero_init();
     schedule(&mut _unused as *mut _);
+}
+
+/// Get the current 'Running' task's memory set.
+pub fn get_current_memory_set() -> *mut MemorySet {
+    let task = current_task().unwrap();
+    let mut task_inner = task.inner_exclusive_access();
+    task_inner.get_memory_set() as *mut _
+}
+
+/// Update time and increase syscall time.
+pub fn update_time_and_syscall_times(syscall_id: usize) {
+    let task = current_task().unwrap();
+    let mut task_inner = task.inner_exclusive_access();
+    task_inner.time = get_time_ms() - task_inner.first_schedule_time;
+    task_inner.syscall_times[syscall_id] += 1;
+}
+
+/// Get current task info.
+pub fn get_current_task_info() -> TaskInfo {
+    let task = current_task().unwrap();
+    let task_inner =  task.inner_exclusive_access();
+    TaskInfo {
+        status: task_inner.task_status,
+        syscall_times: task_inner.syscall_times,
+        time: task_inner.time,
+    }
 }
 
 lazy_static! {
